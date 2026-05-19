@@ -121,23 +121,14 @@
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans overflow-x-hidden antialiased select-none">
 
-    <!-- Loading / Scanning Overlay -->
-    <div id="loading-overlay" class="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-[100] flex flex-col items-center justify-center gap-4 p-6 transition-opacity duration-500">
-        <div id="loading-icon-wrapper" class="p-4 bg-indigo-600/10 border border-indigo-500/20 rounded-full animate-bounce">
-            <i id="discovery-icon" data-lucide="compass" class="w-8 h-8 text-indigo-400 animate-spin"></i>
+    <!-- Loading Overlay (Brief fade-in transition for style) -->
+    <div id="loading-overlay" class="fixed inset-0 bg-slate-950 z-[100] flex flex-col items-center justify-center gap-4 p-6 transition-opacity duration-500">
+        <div class="p-4 bg-indigo-600/10 border border-indigo-500/20 rounded-full animate-bounce">
+            <i data-lucide="book-open" class="w-8 h-8 text-indigo-400"></i>
         </div>
-        <div class="text-center max-w-md">
-            <h2 id="loading-title" class="text-lg font-bold text-slate-100 tracking-wider">Syncing Repository Content</h2>
-            <p id="loading-subtext" class="text-xs text-slate-400 mt-1 font-mono break-all">Connecting to Discovery Engine...</p>
-        </div>
-
-        <!-- Hidden diagnostic console (Reveals on failure) -->
-        <button id="diagnostic-btn" onclick="toggleDiagnostics()" class="hidden mt-4 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[10px] text-slate-400 rounded-lg transition-colors flex items-center gap-1">
-            <i data-lucide="terminal" class="w-3.5 h-3.5"></i>
-            <span>Show Diagnostic Log</span>
-        </button>
-        <div id="diagnostic-log-container" class="hidden w-full max-w-lg mt-3 p-3 bg-black/80 border border-slate-900 rounded-xl text-[10px] font-mono text-slate-400 max-h-40 overflow-y-auto text-left leading-relaxed">
-            <!-- Dynamic logs injected here -->
+        <div class="text-center">
+            <h2 class="text-lg font-bold text-slate-100 tracking-wider">Loading Publication</h2>
+            <p class="text-xs text-slate-400 mt-1 font-mono">Assembling 3D pages...</p>
         </div>
     </div>
 
@@ -195,7 +186,7 @@
                         <!-- Dropdown Menu List -->
                         <div id="folders-dropdown" class="hidden absolute bottom-full left-0 mb-2 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden z-50">
                             <div class="p-1.5 flex flex-col gap-1" id="dropdown-items-container">
-                                <!-- Dynamic configured options injected here from GitHub API scan -->
+                                <!-- Dynamic configured options injected here -->
                             </div>
                         </div>
                     </div>
@@ -239,24 +230,38 @@
 
     <!-- Flipbook Scripts -->
     <script>
-        // Global Auto-Discovery Configuration Settings
-        const AUTO_DISCOVER_SETTINGS = {
-            basePath: "issues/",
-            maxExpectedPages: 100 
+        // ==========================================
+        // HARDCODED ISSUES CONFIGURATION
+        // ==========================================
+        // You do not need config.json or API requests! Add, edit, or remove issues directly below.
+        const BOOK_CONFIG = {
+            folders: [
+                {
+                    name: "Issue 1",
+                    folderPath: "issues/Issue 1/",
+                    prefix: "SavoyTuffle-1_Page_", // Image filename prefix
+                    suffix: "_Image_",            // Image filename middle part
+                    extension: ".png",            // File extension
+                    totalPages: 8                 // CHANGE THIS to the exact total number of pages in Issue 1
+                }
+                /*
+                // To add "Issue 2" in the future, uncomment and configure this block:
+                ,
+                {
+                    name: "Issue 2",
+                    folderPath: "issues/Issue 2/",
+                    prefix: "SavoyTuffle-2_Page_", 
+                    suffix: "_Image_",            
+                    extension: ".png",            
+                    totalPages: 12                
+                }
+                */
+            ],
+            defaultIndex: 0 // Index of the issue to load initially (0 = Issue 1)
         };
 
-        // =========================================================================
-        // LOCAL PREVIEW & EXPLICIT REPOSITORY DECLARATION
-        // points directly to your repository so it works in localhost previews!
-        // =========================================================================
-        const GITHUB_FALLBACK = {
-            owner: "mr-mcassey", 
-            repo: "FlipBook"   
-        };
-
-        // Active State
-        let discoveredFolders = [];
-        let currentFolderIndex = 0;
+        // Active Application State
+        let currentFolderIndex = BOOK_CONFIG.defaultIndex;
         let images = [];
         let currentSheet = 0; 
         let totalSheets = 0;
@@ -270,19 +275,7 @@
         let touchEndX = 0;
         let isDragging = false;
 
-        // Logging utility for diagnostics
-        const debugLogs = [];
-        function logDebug(message) {
-            console.log("[Discovery Engine]", message);
-            debugLogs.push(`[${new Date().toLocaleTimeString()}] ${message}`);
-            const container = document.getElementById('diagnostic-log-container');
-            if (container) {
-                container.innerHTML = debugLogs.join("<br/>");
-                container.scrollTop = container.scrollHeight;
-            }
-        }
-
-        // Helper: Resolves and encodes paths safely without double-encoding space characters
+        // Helper: Encodes and formats paths cleanly (handles folder spaces like "Issue 1" -> "Issue%201")
         function resolveUrl(path) {
             if (!path) return "";
             return encodeURI(decodeURI(path));
@@ -303,164 +296,25 @@
                 }
             });
 
-            // Trigger the Discovery Engine
-            startDiscoveryEngine();
+            // Initialize dropdown selector and load the default book
+            buildDropdownMenu();
+            loadFolder(BOOK_CONFIG.defaultIndex, true);
+
+            // Hide the loading overlay smoothly
+            const overlay = document.getElementById('loading-overlay');
+            if (overlay) {
+                overlay.classList.add('opacity-0');
+                setTimeout(() => overlay.classList.add('hidden'), 500);
+            }
         };
 
-        // Toggle Diagnostic view
-        function toggleDiagnostics() {
-            const container = document.getElementById('diagnostic-log-container');
-            if (container) container.classList.toggle('hidden');
-        }
-
-        // --- DISCOVERY ENGINE LOGIC ---
-        async function startDiscoveryEngine() {
-            logDebug("Starting engine...");
-            const subtext = document.getElementById('loading-subtext');
-
-            if (subtext) subtext.innerText = "Querying GitHub Content Repositories...";
-            
-            // 1. Attempt GitHub Pages API scan
-            await runGitHubApiDiscovery();
-
-            // Finish up and transition out loading overlay
-            const overlay = document.getElementById('loading-overlay');
-            if (discoveredFolders.length > 0) {
-                logDebug(`Success! Found ${discoveredFolders.length} active issue folder(s).`);
-                buildDropdownMenu();
-                loadFolder(0, true);
-                if (overlay) {
-                    overlay.classList.add('opacity-0');
-                    setTimeout(() => overlay.classList.add('hidden'), 500);
-                }
-            } else {
-                logDebug("Zero folders discovered. Loader is locked.");
-                // No issues found: Show troubleshooting layout on screen
-                const title = document.getElementById('loading-title');
-                if (title) title.innerText = "Discovery Scan Completed";
-                if (subtext) {
-                    subtext.innerHTML = `
-                        <span class="text-rose-400 block font-bold mb-2">No Issue Folders Discovered!</span>
-                        Please double check that:<br/>
-                        1. Your folder is inside <span class="text-indigo-400">issues/</span> (e.g., <span class="text-indigo-400">issues/Issue 1/</span>)<br/>
-                        2. You have committed and pushed your images to GitHub.<br/>
-                        3. Click diagnostics below to review parsed URLs.
-                    `;
-                }
-                const icon = document.getElementById('discovery-icon');
-                if (icon) {
-                    icon.classList.remove('animate-spin');
-                    icon.setAttribute('data-lucide', 'alert-circle');
-                    lucide.createIcons();
-                }
-                const iconWrap = document.getElementById('loading-icon-wrapper');
-                if (iconWrap) {
-                    iconWrap.className = "p-4 bg-rose-500/10 border border-rose-500/20 rounded-full animate-pulse";
-                }
-                const diagBtn = document.getElementById('diagnostic-btn');
-                if (diagBtn) diagBtn.classList.remove('hidden');
-            }
-        }
-
-        // GitHub Content API discovery (Modern cloud hosting auto-loader)
-        async function runGitHubApiDiscovery() {
-            try {
-                const hostnameParts = window.location.hostname.split('.');
-                let owner = "";
-                let repo = "";
-
-                // Check if running on github.io
-                const isLiveGitHubPages = hostnameParts.length >= 2 && hostnameParts[1] === "github" && hostnameParts[2] === "io";
-                if (isLiveGitHubPages) {
-                    owner = hostnameParts[0];
-                    const pathParts = window.location.pathname.split('/').filter(p => p);
-                    repo = pathParts[0] || '';
-                    
-                    // If pathname was empty, it's a User Page, so repository name is owner.github.io
-                    if (!repo) {
-                        repo = `${owner}.github.io`;
-                    }
-                    logDebug(`Detected Live GitHub Pages: Owner=[${owner}], Repo=[${repo}]`);
-                } else {
-                    // Local fallback
-                    owner = GITHUB_FALLBACK.owner;
-                    repo = GITHUB_FALLBACK.repo;
-                    logDebug(`Preview/Local environment. Connecting to GitHub via fallback: Owner=[${owner}], Repo=[${repo}]`);
-                }
-
-                if (!owner || !repo) {
-                    throw new Error("No repository credentials available.");
-                }
-
-                const apiDirUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${AUTO_DISCOVER_SETTINGS.basePath}`;
-                logDebug(`Fetching directory index from GitHub: ${apiDirUrl}`);
-                
-                const response = await fetch(apiDirUrl);
-                if (!response.ok) {
-                    throw new Error(`Directory index request failed with status code ${response.status}`);
-                }
-                
-                const contents = await response.json();
-                logDebug(`Connected successfully. Parsing issue subdirectories...`);
-                
-                // Filter and isolate directories inside "issues/"
-                const directories = contents.filter(item => item.type === "dir");
-                logDebug(`Found ${directories.length} folders inside ${AUTO_DISCOVER_SETTINGS.basePath}`);
-                
-                // Sort folders alphabetically/numerically
-                directories.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
-
-                const rawBaseUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/`;
-
-                for (let dir of directories) {
-                    logDebug(`Scanning folder: "${dir.name}"...`);
-                    const fileResponse = await fetch(dir.url);
-                    if (fileResponse.ok) {
-                        const files = await fileResponse.json();
-                        
-                        // Grab any valid images in the folder dynamically (ignores strict prefix settings)
-                        const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg'];
-                        const imageFiles = files.filter(f => 
-                            f.type === "file" && 
-                            imageExtensions.some(ext => f.name.toLowerCase().endsWith(ext))
-                        );
-
-                        logDebug(`Found ${imageFiles.length} valid images inside "${dir.name}"`);
-
-                        if (imageFiles.length > 0) {
-                            // Sort pages using alphanumeric sorting to keep your sequence exactly in order
-                            imageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
-
-                            // Resolve URLs: Live page uses relative paths; previews use raw github URLs to prevent local 404s
-                            const resolvedPaths = imageFiles.map(f => {
-                                return isLiveGitHubPages ? f.path : `${rawBaseUrl}${f.path}`;
-                            });
-
-                            discoveredFolders.push({
-                                name: dir.name,
-                                folderName: dir.name,
-                                filePaths: resolvedPaths,
-                                totalPages: imageFiles.length
-                            });
-                        }
-                    } else {
-                        logDebug(`Failed to retrieve file index inside "${dir.name}". Status: ${fileResponse.status}`);
-                    }
-                }
-            } catch (e) {
-                logDebug(`GitHub API parsing failed: ${e.message}`);
-            }
-        }
-
-        // --- INTERACTIVE VISUAL VIEWER SCRIPTS ---
-
-        // Generate customized selection items inside dropdown
+        // Generate drop-down selection options dynamically from our hardcoded array
         function buildDropdownMenu() {
             const container = document.getElementById('dropdown-items-container');
             if (!container) return;
             container.innerHTML = '';
 
-            discoveredFolders.forEach((folder, index) => {
+            BOOK_CONFIG.folders.forEach((folder, index) => {
                 const btn = document.createElement('button');
                 btn.className = "w-full text-left px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white rounded-lg transition-colors flex items-center justify-between";
                 btn.onclick = () => {
@@ -481,26 +335,33 @@
             if (dropdown) dropdown.classList.toggle('hidden');
         }
 
-        // Load files for selected issue
+        // Construct and load files for selected issue
         function loadFolder(index, initialLoad = false) {
-            if (!discoveredFolders[index]) return;
+            if (!BOOK_CONFIG.folders[index]) return;
             currentFolderIndex = index;
-            const target = discoveredFolders[index];
+            const target = BOOK_CONFIG.folders[index];
 
-            // Set label on dropdown select trigger button
+            // Set dropdown label
             const label = document.getElementById('selected-folder-label');
             if (label) label.innerText = target.name;
 
-            // Construct folder images path array dynamically using discovered files
-            images = [...target.filePaths];
+            // Generate precise file paths matching your PDF image outputs
+            // e.g., SavoyTuffle-1_Page_01_Image_0001.png
+            images = [];
+            for (let i = 1; i <= target.totalPages; i++) {
+                const pageNum = i.toString().padStart(2, '0');
+                const imgNum = i.toString().padStart(4, '0');
+                const filePath = `${target.folderPath}${target.prefix}${pageNum}${target.suffix}${imgNum}${target.extension}`;
+                images.push(filePath);
+            }
 
-            // Ensure even pages for correct double-sheet pagination mechanics
+            // Ensure even pages for correct double-sheet 3D book pagination alignment
             if (images.length % 2 !== 0) {
                 images.push(""); 
             }
 
             totalSheets = Math.ceil(images.length / 2);
-            currentSheet = 0; // Rewind back to cover
+            currentSheet = 0; // Rewind back to cover page
 
             stopAutoplay();
             renderBook();
@@ -551,7 +412,7 @@
                 // Back page (Odd indexes: 1, 3, 5...)
                 const backImg = images[s * 2 + 1];
 
-                // Auto-fit style rule: contains the image dynamically in the page face with safe space-URL escaping
+                // Auto-fit style rule: contains the image dynamically in the page face
                 const frontStyle = frontImg ? `background-image: url('${resolveUrl(frontImg)}'); background-size: contain; background-repeat: no-repeat; background-position: center; background-color: #0f172a;` : `background-color: #0f172a;`;
                 const backStyle = backImg ? `background-image: url('${resolveUrl(backImg)}'); background-size: contain; background-repeat: no-repeat; background-position: center; background-color: #0f172a;` : `background-color: #0f172a;`;
 
@@ -585,11 +446,11 @@
             const spine = document.getElementById('book-spine');
             
             if (currentSheet === 0) {
-                // Closed Cover
+                // Closed Cover (Shift book element slightly right)
                 if (bookContainer) bookContainer.style.transform = `translateX(25%)`;
                 if (spine) spine.style.transform = `translate(-50%) translateZ(4px)`;
             } else if (currentSheet === totalSheets) {
-                // Closed Back Cover
+                // Closed Back Cover (Shift book element slightly left)
                 if (bookContainer) bookContainer.style.transform = `translateX(-25%)`;
                 if (spine) spine.style.transform = `translate(-50%) translateZ(4px)`;
             } else {
@@ -644,7 +505,6 @@
             }
         }
 
-        // Reset to beginning page state
         function resetToBeginning() {
             stopAutoplay();
             currentSheet = 0;
