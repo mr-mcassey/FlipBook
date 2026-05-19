@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minimalist 3D Page-Flip Book</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* 3D Book Layout & Perspective */
+        .book-container {
+            perspective: 2500px;
+            perspective-origin: 50% 50%;
+        }
+
+        .book {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transform-style: preserve-3d;
+            transition: transform 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        /* Spine styling */
+        .spine {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            width: 14px;
+            height: 100%;
+            transform: translate(-50%) translateZ(2px);
+            background: linear-gradient(90deg, #090d16 0%, #273549 30%, #3d4f68 50%, #273549 70%, #090d16 100%);
+            box-shadow: 0 0 10px rgba(0,0,0,0.6);
+            z-index: 100;
+            border-radius: 3px;
+            pointer-events: none;
+            transition: transform 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        /* Each sheet (contains a front page and a back page) */
+        .sheet {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 50%;
+            height: 100%;
+            transform-origin: left center;
+            transform-style: preserve-3d;
+            transition: transform 1.2s cubic-bezier(0.25, 1, 0.5, 1), z-index 0.3s ease;
+            z-index: 1;
+        }
+
+        /* Front and Back of each sheet */
+        .page-face {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            background-color: #1e293b; /* Fallback color matching dark theme */
+            box-shadow: inset 4px 0 30px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.4);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            user-select: none;
+        }
+
+        /* Back face needs to be rotated 180deg */
+        .page-face.back {
+            transform: rotateY(180deg);
+            box-shadow: inset -4px 0 30px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.4);
+        }
+
+        /* Left-facing pages shadow simulation */
+        .page-face.back::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 25px;
+            height: 100%;
+            background: linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.3) 100%);
+            pointer-events: none;
+        }
+
+        /* Right-facing pages shadow simulation */
+        .page-face.front::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 25px;
+            height: 100%;
+            background: linear-gradient(to left, rgba(0,0,0,0) 0%, rgba(0,0,0,0.3) 100%);
+            pointer-events: none;
+        }
+
+        /* Hardcover edge rounding */
+        .hardcover {
+            border-radius: 0 8px 8px 0;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .hardcover.back {
+            border-radius: 8px 0 0 8px;
+        }
+
+        /* When sheet is flipped left */
+        .sheet.flipped {
+            transform: rotateY(-180deg);
+        }
+
+        /* Shadow beneath the book for realism */
+        .book-shadow {
+            box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.8);
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans overflow-x-hidden antialiased select-none">
+
+    <!-- Loading / Scanning Overlay -->
+    <div id="loading-overlay" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[100] flex flex-col items-center justify-center gap-4 transition-opacity duration-500">
+        <div class="p-4 bg-indigo-600/10 border border-indigo-500/20 rounded-full animate-bounce">
+            <i data-lucide="compass" class="w-8 h-8 text-indigo-400 animate-spin"></i>
+        </div>
+        <div class="text-center">
+            <h2 class="text-lg font-bold text-slate-100 tracking-wider">Syncing Repository Content</h2>
+            <p id="loading-subtext" class="text-xs text-slate-400 mt-1 font-mono">Connecting to Discovery Engine...</p>
+        </div>
+    </div>
+
+    <!-- Main Workspace (Fully Centered) -->
+    <main class="flex-1 w-full max-w-7xl mx-auto p-4 md:p-8 flex flex-col items-center justify-center gap-6">
+        
+        <!-- Book Wrap (Responsive Scale Container) -->
+        <div id="scale-container" class="w-full flex justify-center items-center py-4">
+            
+            <!-- Book shadow container -->
+            <div class="book-shadow rounded-2xl p-3 bg-slate-900/10 backdrop-blur-sm border border-slate-900 relative">
+                
+                <!-- 3D Viewport container -->
+                <div class="book-container w-[340px] h-[240px] sm:w-[600px] sm:h-[400px] md:w-[760px] md:h-[480px] lg:w-[900px] lg:h-[560px] relative">
+                    
+                    <!-- Dynamic Spine Overlay (visual center) -->
+                    <div id="book-spine" class="spine"></div>
+                    
+                    <!-- Book Core -->
+                    <div id="flipbook" class="book">
+                        <!-- Sheets will be injected here dynamically by JS -->
+                    </div>
+
+                    <!-- Ambient Left/Right Navigation Areas (Tapping pages to flip) -->
+                    <button id="touch-left-zone" onclick="manualPrev()" aria-label="Previous Page" class="absolute left-0 top-0 w-[45%] h-full z-40 bg-gradient-to-r from-black/10 to-transparent hover:from-black/25 opacity-0 hover:opacity-100 transition-opacity duration-300 rounded-l-lg flex items-center justify-start pl-4 group">
+                        <div class="p-3 bg-slate-900/90 border border-slate-800 rounded-full text-white shadow-xl transform group-hover:scale-105 transition duration-200">
+                            <i data-lucide="chevron-left" class="w-5 h-5"></i>
+                        </div>
+                    </button>
+                    <button id="touch-right-zone" onclick="manualNext()" aria-label="Next Page" class="absolute right-0 top-0 w-[45%] h-full z-40 bg-gradient-to-l from-black/10 to-transparent hover:from-black/25 opacity-0 hover:opacity-100 transition-opacity duration-300 rounded-r-lg flex items-center justify-end pr-4 group">
+                        <div class="p-3 bg-slate-900/90 border border-slate-800 rounded-full text-white shadow-xl transform group-hover:scale-105 transition duration-200">
+                            <i data-lucide="chevron-right" class="w-5 h-5"></i>
+                        </div>
+                    </button>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls Toolbar (Sleek, Floated style) -->
+        <div class="w-full max-w-xl">
+            <div class="bg-slate-900/95 border border-slate-800/80 backdrop-blur-md rounded-2xl p-3 flex items-center justify-between gap-4 shadow-2xl relative">
+                
+                <!-- Repo Folder Selector & Autoplay controls -->
+                <div class="flex items-center gap-2">
+                    
+                    <!-- Custom Repo Dropdown Container -->
+                    <div class="relative">
+                        <button id="dropdown-toggle" onclick="toggleDropdown()" class="p-2.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 hover:border-indigo-500/50 text-indigo-400 hover:text-indigo-300 rounded-xl active:scale-95 transition-all flex items-center gap-1.5 text-xs font-semibold" title="Choose Folder">
+                            <i data-lucide="folder" class="w-4 h-4"></i>
+                            <span id="selected-folder-label">Select Issue</span>
+                            <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+                        </button>
+                        
+                        <!-- Dropdown Menu List -->
+                        <div id="folders-dropdown" class="hidden absolute bottom-full left-0 mb-2 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden z-50">
+                            <div class="p-1.5 flex flex-col gap-1" id="dropdown-items-container">
+                                <!-- Dynamic configured options injected here from GitHub API scan -->
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button onclick="resetToBeginning()" class="p-2.5 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl active:scale-95 transition-all" title="Return to Cover">
+                        <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+                    </button>
+                    <button id="play-pause-btn" onclick="togglePlay()" class="p-2.5 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl active:scale-95 transition-all" title="Toggle Autoplay">
+                        <i id="play-pause-icon" data-lucide="pause" class="w-5 h-5"></i>
+                    </button>
+                </div>
+
+                <!-- Pagination Status Indicator -->
+                <div class="flex items-center gap-1.5 bg-slate-950/80 px-4 py-1.5 rounded-xl border border-slate-800/60 text-xs font-semibold tracking-wider text-slate-400">
+                    <span id="page-indicator" class="text-indigo-400 font-bold">1 / 4</span>
+                </div>
+
+                <!-- Navigation Controls & Fullscreen -->
+                <div class="flex items-center gap-2">
+                    <button onclick="manualPrev()" class="p-2.5 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl active:scale-95 transition-all" title="Previous Page">
+                        <i data-lucide="arrow-left" class="w-5 h-5"></i>
+                    </button>
+                    <button onclick="manualNext()" class="p-2.5 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl active:scale-95 transition-all" title="Next Page">
+                        <i data-lucide="arrow-right" class="w-5 h-5"></i>
+                    </button>
+                    <div class="w-[1px] h-6 bg-slate-800 self-center mx-1"></div>
+                    <button onclick="toggleFullscreen()" class="p-2.5 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl active:scale-95 transition-all" title="Toggle Fullscreen">
+                        <i id="fullscreen-icon" data-lucide="maximize" class="w-5 h-5"></i>
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <!-- Tiny Toast indicator overlay -->
+    <div id="toast-message" class="fixed bottom-6 right-6 z-50 transform translate-y-10 opacity-0 transition-all duration-300 pointer-events-none bg-slate-900 border border-slate-800 text-slate-300 px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 text-xs font-medium">
+        <i data-lucide="info" class="w-4 h-4 text-indigo-400"></i>
+        <span id="toast-text">Folder Loaded</span>
+    </div>
+
+    <!-- Flipbook Scripts -->
+    <script>
+        // Global Auto-Discovery Configuration Settings
+        const AUTO_DISCOVER_SETTINGS = {
+            basePath: "issues/",
+            prefix: "page_",
+            extension: ".jpg",
+            maxExpectedPages: 100 // Maximum safety limit for testing sequential local pages
+        };
+
+        // =========================================================================
+        // LOCAL PREVIEW / GITHUB FALLBACK CONFIGURATION
+        // Fill this out if you want to test pulling images from GitHub while local
+        // =========================================================================
+        const GITHUB_FALLBACK = {
+            owner: "", // e.g. "your-github-username"
+            repo: ""   // e.g. "your-repo-name"
+        };
+
+        // Active State
+        let discoveredFolders = [];
+        let currentFolderIndex = 0;
+        let images = [];
+        let currentSheet = 0; 
+        let totalSheets = 0;
+        
+        let isAutoPlaying = true;
+        let autoplayIntervalId = null;
+        let autoPlaySpeed = 4000; // 4 seconds per page turn
+
+        // Touch/Swipe gesture mapping
+        let touchStartX = 0;
+        let touchEndX = 0;
+        let isDragging = false;
+
+        window.onload = function() {
+            lucide.createIcons();
+            
+            window.addEventListener('keydown', handleKeyPress);
+            window.addEventListener('resize', handleScaling);
+            handleScaling();
+
+            window.addEventListener('click', function(e) {
+                const dropdown = document.getElementById('folders-dropdown');
+                const toggle = document.getElementById('dropdown-toggle');
+                if (dropdown && toggle && !toggle.contains(e.target) && !dropdown.contains(e.target)) {
+                    dropdown.classList.add('hidden');
+                }
+            });
+
+            // Trigger the Zero-Configuration Discovery Engine
+            startDiscoveryEngine();
+        };
+
+        // --- DISCOVERY ENGINE LOGIC ---
+        async function startDiscoveryEngine() {
+            const subtext = document.getElementById('loading-subtext');
+
+            if (subtext) subtext.innerText = "Querying GitHub Content Repositories...";
+            await runGitHubApiDiscovery();
+
+            // Finish up and transition out loading overlay
+            const overlay = document.getElementById('loading-overlay');
+            if (discoveredFolders.length > 0) {
+                buildDropdownMenu();
+                loadFolder(0, true);
+                if (overlay) {
+                    overlay.classList.add('opacity-0');
+                    setTimeout(() => overlay.classList.add('hidden'), 500);
+                }
+            } else {
+                // No issues found: Show troubleshooting layout on screen
+                if (subtext) {
+                    subtext.innerHTML = `
+                        <span class="text-rose-400 block font-bold mb-2">No Issues Found!</span>
+                        Ensure your repository contains directories inside <span class="text-indigo-400">issues/</span><br/>
+                        containing files like <span class="text-indigo-400">page_0.jpg, page_1.jpg</span>
+                    `;
+                }
+                const icon = document.querySelector('#loading-overlay i');
+                if (icon) icon.className = "w-8 h-8 text-rose-400";
+            }
+        }
+
+        // GitHub Content API discovery (Modern cloud hosting auto-loader)
+        async function runGitHubApiDiscovery() {
+            try {
+                // Parse Github Owner and Repo Name dynamically from the window location hostname & path
+                const hostnameParts = window.location.hostname.split('.');
+                let owner = "";
+                let repo = "";
+
+                // Check if running on github.io
+                if (hostnameParts.length >= 2 && hostnameParts[1] === "github" && hostnameParts[2] === "io") {
+                    owner = hostnameParts[0];
+                    const pathParts = window.location.pathname.split('/').filter(p => p);
+                    repo = pathParts[0] || '';
+                }
+
+                // Fallback if local/localhost and custom credentials are provided
+                if (!owner || !repo) {
+                    owner = GITHUB_FALLBACK.owner;
+                    repo = GITHUB_FALLBACK.repo;
+                }
+
+                // If no Github details are found/configured, fallback directly to scanning the relative local issues/ directory
+                if (!owner || !repo) {
+                    throw new Error("Local environment detected. Falling back to local probing.");
+                }
+
+                const apiDirUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${AUTO_DISCOVER_SETTINGS.basePath}`;
+                const response = await fetch(apiDirUrl);
+                if (!response.ok) throw new Error("API path not accessible. Using local fallback.");
+                
+                const contents = await response.json();
+                
+                // Filter and isolate directories inside "issues/"
+                const directories = contents.filter(item => item.type === "dir");
+                
+                // Sort folders alphabetically/numerically (e.g., Issue 1, Issue 2, Issue 10)
+                directories.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
+
+                for (let dir of directories) {
+                    // Query each directory's page file list
+                    const fileResponse = await fetch(dir.url);
+                    if (fileResponse.ok) {
+                        const files = await fileResponse.json();
+                        
+                        // Grab any valid images in the folder dynamically (ignores strict prefix settings)
+                        const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg'];
+                        const imageFiles = files.filter(f => 
+                            f.type === "file" && 
+                            imageExtensions.some(ext => f.name.toLowerCase().endsWith(ext))
+                        );
+
+                        if (imageFiles.length > 0) {
+                            // Sort pages using alphanumeric sorting to keep your sequence exactly in order
+                            imageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
+
+                            discoveredFolders.push({
+                                name: dir.name,
+                                folderName: dir.name,
+                                filePaths: imageFiles.map(f => f.path),
+                                totalPages: imageFiles.length
+                            });
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn("GitHub API check failed, executing local prober fallback:", e.message);
+                const subtext = document.getElementById('loading-subtext');
+                if (subtext) subtext.innerText = "Scanning local folders (Probing file paths)...";
+                await runLocalFallbackProber();
+            }
+        }
+
+        // Local Prober Fallback (Perfect for Localhost development)
+        async function runLocalFallbackProber() {
+            const namesToScan = [];
+            for (let i = 1; i <= 24; i++) {
+                namesToScan.push(`Issue ${i}`);
+                namesToScan.push(`Issue_${i}`);
+                namesToScan.push(`Volume ${i}`);
+                namesToScan.push(`Vol_${i}`);
+                namesToScan.push(`${i}`);
+            }
+
+            // Test folders in batches concurrently to maximize discovery speed
+            const batchSize = 6;
+            for (let i = 0; i < namesToScan.length; i += batchSize) {
+                const batch = namesToScan.slice(i, i + batchSize);
+                const scanPromises = batch.map(folderName => probeFolder(folderName));
+                const results = await Promise.all(scanPromises);
+                
+                results.forEach(res => {
+                    if (res) discoveredFolders.push(res);
+                });
+            }
+            
+            // Sort discovered items alphabetically so sequence orders match perfectly
+            discoveredFolders.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
+        }
+
+        // Helper: Probes folders sequentially to see if they exist and count pages
+        function probeFolder(folderName) {
+            return new Promise((resolve) => {
+                const testPath = `${AUTO_DISCOVER_SETTINGS.basePath}${folderName}/${AUTO_DISCOVER_SETTINGS.prefix}0${AUTO_DISCOVER_SETTINGS.extension}`;
+                const img = new Image();
+                
+                img.onload = async function() {
+                    // Folder exists! Now let's calculate exact totalPages
+                    const pages = await countPagesInFolder(folderName);
+                    resolve({
+                        name: folderName,
+                        folderName: folderName,
+                        totalPages: pages
+                    });
+                };
+                
+                img.onerror = function() {
+                    resolve(null);
+                };
+                
+                img.src = testPath;
+            });
+        }
+
+        // Helper: Counts files sequentially until hitting a broken resource link (404)
+        async function countPagesInFolder(folderName) {
+            let pageCount = 0;
+            let searching = true;
+            
+            while (searching && pageCount < AUTO_DISCOVER_SETTINGS.maxExpectedPages) {
+                const testPath = `${AUTO_DISCOVER_SETTINGS.basePath}${folderName}/${AUTO_DISCOVER_SETTINGS.prefix}${pageCount}${AUTO_DISCOVER_SETTINGS.extension}`;
+                const exists = await checkImageExists(testPath);
+                if (exists) {
+                    pageCount++;
+                } else {
+                    searching = false;
+                }
+            }
+            return pageCount;
+        }
+
+        // Helper: Quick boolean test for file existence
+        function checkImageExists(path) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => resolve(true);
+                img.onerror = () => resolve(false);
+                img.src = path;
+            });
+        }
+
+        // --- INTERACTIVE VISUAL VIEWER SCRIPTS ---
+
+        // Generate customized selection items inside dropdown
+        function buildDropdownMenu() {
+            const container = document.getElementById('dropdown-items-container');
+            if (!container) return;
+            container.innerHTML = '';
+
+            discoveredFolders.forEach((folder, index) => {
+                const btn = document.createElement('button');
+                btn.className = "w-full text-left px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white rounded-lg transition-colors flex items-center justify-between";
+                btn.onclick = () => {
+                    loadFolder(index);
+                    toggleDropdown();
+                };
+                btn.innerHTML = `
+                    <span class="truncate pr-2">${folder.name}</span>
+                    <span class="text-[10px] text-slate-500 font-mono flex-shrink-0">${folder.totalPages} pgs</span>
+                `;
+                container.appendChild(btn);
+            });
+        }
+
+        // Toggle dropdown menu display state
+        function toggleDropdown() {
+            const dropdown = document.getElementById('folders-dropdown');
+            if (dropdown) dropdown.classList.toggle('hidden');
+        }
+
+        // Load files for selected issue
+        function loadFolder(index, initialLoad = false) {
+            if (!discoveredFolders[index]) return;
+            currentFolderIndex = index;
+            const target = discoveredFolders[index];
+
+            // Set label on dropdown select trigger button
+            const label = document.getElementById('selected-folder-label');
+            if (label) label.innerText = target.name;
+
+            // Construct folder images path array dynamically using discovered files
+            if (target.filePaths && target.filePaths.length > 0) {
+                images = [...target.filePaths];
+            } else {
+                // Backward compatibility fallback for old local/probing formats
+                images = [];
+                const folderPath = `${AUTO_DISCOVER_SETTINGS.basePath}${target.folderName}/`;
+                for (let i = 0; i < target.totalPages; i++) {
+                    images.push(`${folderPath}${AUTO_DISCOVER_SETTINGS.prefix}${i}${AUTO_DISCOVER_SETTINGS.extension}`);
+                }
+            }
+
+            // Ensure even pages for correct double-sheet pagination mechanics
+            if (images.length % 2 !== 0) {
+                images.push(""); 
+            }
+
+            totalSheets = Math.ceil(images.length / 2);
+            currentSheet = 0; // Rewind back to cover
+
+            stopAutoplay();
+            renderBook();
+            startAutoplay();
+
+            if (!initialLoad) {
+                showToast(`Switched to ${target.name}`);
+            }
+        }
+
+        // Responsive Scaling to fit standard viewports seamlessly
+        function handleScaling() {
+            const container = document.querySelector('.book-container');
+            if (!container) return;
+            const viewportWidth = window.innerWidth;
+            
+            let scaleFactor = 1;
+            if (viewportWidth < 450) {
+                scaleFactor = (viewportWidth - 32) / 360; 
+            } else if (viewportWidth < 640) {
+                scaleFactor = (viewportWidth - 48) / 600;
+            } else if (viewportWidth < 768) {
+                scaleFactor = (viewportWidth - 64) / 760;
+            } else if (viewportWidth < 1024) {
+                scaleFactor = (viewportWidth - 80) / 900;
+            } else {
+                scaleFactor = 1;
+            }
+
+            // Clamping rules
+            scaleFactor = Math.max(0.4, Math.min(1.05, scaleFactor));
+            container.style.transform = `scale(${scaleFactor})`;
+        }
+
+        // Dynamic 3D Book Sheets Builder
+        function renderBook() {
+            const bookEl = document.getElementById('flipbook');
+            if (!bookEl) return;
+            bookEl.innerHTML = '';
+
+            for (let s = 0; s < totalSheets; s++) {
+                const sheet = document.createElement('div');
+                sheet.id = `sheet-${s}`;
+                sheet.className = `sheet`;
+                
+                // Front page (Even indexes: 0, 2, 4...)
+                const frontImg = images[s * 2];
+                // Back page (Odd indexes: 1, 3, 5...)
+                const backImg = images[s * 2 + 1];
+
+                // Auto-fit style rule: contains the image dynamically in the bounding page face container
+                const frontStyle = frontImg ? `background-image: url('${frontImg}'); background-size: contain; background-repeat: no-repeat; background-position: center; background-color: #0f172a;` : `background-color: #0f172a;`;
+                const backStyle = backImg ? `background-image: url('${backImg}'); background-size: contain; background-repeat: no-repeat; background-position: center; background-color: #0f172a;` : `background-color: #0f172a;`;
+
+                const isFirstCover = s === 0;
+                const isLastCover = s === totalSheets - 1;
+
+                sheet.innerHTML = `
+                    <!-- Front Page Face -->
+                    <div class="page-face front ${isFirstCover ? 'hardcover' : ''}" style="${frontStyle}">
+                        <!-- Spine shadow highlight -->
+                        <div class="absolute top-0 left-0 w-[4px] h-full bg-black/40 z-10"></div>
+                    </div>
+                    
+                    <!-- Back Page Face -->
+                    <div class="page-face back ${isLastCover ? 'hardcover back' : ''}" style="${backStyle}">
+                        <!-- Spine shadow highlight -->
+                        <div class="absolute top-0 right-0 w-[4px] h-full bg-black/40 z-10"></div>
+                    </div>
+                `;
+
+                bookEl.appendChild(sheet);
+            }
+
+            // Sync visual stacking
+            updateSheetsState();
+        }
+
+        // Align spine & apply 3D transformations depending on layout position
+        function updateSheetsState() {
+            const bookContainer = document.querySelector('.book-container');
+            const spine = document.getElementById('book-spine');
+            
+            if (currentSheet === 0) {
+                // Closed Cover (Shift book element slightly right)
+                if (bookContainer) bookContainer.style.transform = `translateX(25%)`;
+                if (spine) spine.style.transform = `translate(-50%) translateZ(4px)`;
+            } else if (currentSheet === totalSheets) {
+                // Closed Back Cover (Shift book element slightly left)
+                if (bookContainer) bookContainer.style.transform = `translateX(-25%)`;
+                if (spine) spine.style.transform = `translate(-50%) translateZ(4px)`;
+            } else {
+                // Fully open double pages (Centered)
+                if (bookContainer) bookContainer.style.transform = `translateX(0)`;
+                if (spine) spine.style.transform = `translate(-50%) translateZ(10px)`;
+            }
+
+            handleScaling();
+
+            for (let s = 0; s < totalSheets; s++) {
+                const sheet = document.getElementById(`sheet-${s}`);
+                if (!sheet) continue;
+
+                if (s < currentSheet) {
+                    sheet.classList.add('flipped');
+                    sheet.style.zIndex = s + 10;
+                } else {
+                    sheet.classList.remove('flipped');
+                    sheet.style.zIndex = (totalSheets - s) + 10;
+                }
+            }
+
+            // Update Pagination display indices
+            const indicator = document.getElementById('page-indicator');
+            if (indicator) {
+                indicator.innerText = `${currentSheet + 1} / ${totalSheets + 1}`;
+            }
+        }
+
+        // Navigation controls
+        function manualPrev() {
+            stopAutoplay();
+            if (currentSheet > 0) {
+                currentSheet--;
+                updateSheetsState();
+                showToast(`Sheet ${currentSheet + 1}`);
+            }
+        }
+
+        // Flip forward page turn
+        function manualNext() {
+            stopAutoplay();
+            if (currentSheet < totalSheets) {
+                currentSheet++;
+                updateSheetsState();
+                showToast(`Sheet ${currentSheet + 1}`);
+            } else {
+                currentSheet = 0;
+                updateSheetsState();
+                showToast("Returned to Cover");
+            }
+        }
+
+        // Reset to beginning page state
+        function resetToBeginning() {
+            stopAutoplay();
+            currentSheet = 0;
+            updateSheetsState();
+            showToast("Cover Page");
+        }
+
+        // Play/Pause Automations
+        function startAutoplay() {
+            if (autoplayIntervalId) clearInterval(autoplayIntervalId);
+            
+            const icon = document.getElementById('play-pause-icon');
+            if (icon) {
+                icon.setAttribute('data-lucide', 'pause');
+                lucide.createIcons();
+            }
+
+            isAutoPlaying = true;
+            autoplayIntervalId = setInterval(() => {
+                if (currentSheet < totalSheets) {
+                    currentSheet++;
+                } else {
+                    currentSheet = 0;
+                }
+                updateSheetsState();
+            }, autoPlaySpeed);
+        }
+
+        // Stop background loops
+        function stopAutoplay() {
+            if (autoplayIntervalId) {
+                clearInterval(autoplayIntervalId);
+                autoplayIntervalId = null;
+            }
+
+            const icon = document.getElementById('play-pause-icon');
+            if (icon) {
+                icon.setAttribute('data-lucide', 'play');
+                lucide.createIcons();
+            }
+
+            isAutoPlaying = false;
+        }
+
+        function togglePlay() {
+            if (isAutoPlaying) {
+                stopAutoplay();
+                showToast("Autoplay Paused");
+            } else {
+                startAutoplay();
+                showToast("Autoplay Started");
+            }
+        }
+
+        // Native Full Screen logic
+        function toggleFullscreen() {
+            const fsIcon = document.getElementById('fullscreen-icon');
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen()
+                    .then(() => {
+                        if (fsIcon) fsIcon.setAttribute('data-lucide', 'minimize');
+                        lucide.createIcons();
+                        showToast("Fullscreen Enabled");
+                    })
+                    .catch(err => {
+                        showToast("Fullscreen unsupported or denied");
+                    });
+            } else {
+                document.exitFullscreen();
+                if (fsIcon) fsIcon.setAttribute('data-lucide', 'maximize');
+                lucide.createIcons();
+                showToast("Fullscreen Disabled");
+            }
+        }
+
+        // Keyboard navigation
+        function handleKeyPress(e) {
+            if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") {
+                manualPrev();
+            } else if (e.key === "ArrowRight" || e.key.toLowerCase() === "d") {
+                manualNext();
+            } else if (e.key === " ") {
+                e.preventDefault();
+                togglePlay();
+            }
+        }
+
+        // Touch Swipe Event Setup
+        const container = document.querySelector('.book-container');
+        if (container) {
+            container.addEventListener('touchstart', (e) => {
+                touchStartX = e.changedTouches[0].screenX;
+            }, { passive: true });
+
+            container.addEventListener('touchend', (e) => {
+                touchEndX = e.changedTouches[0].screenX;
+                handleSwipeGesture();
+            }, { passive: true });
+
+            container.addEventListener('mousedown', (e) => {
+                touchStartX = e.screenX;
+                isDragging = true;
+            });
+
+            container.addEventListener('mouseup', (e) => {
+                if (!isDragging) return;
+                touchEndX = e.screenX;
+                isDragging = false;
+                handleSwipeGesture();
+            });
+
+            container.addEventListener('mouseleave', () => {
+                isDragging = false;
+            });
+        }
+
+        function handleSwipeGesture() {
+            const diff = touchStartX - touchEndX;
+            const threshold = 50;
+
+            if (Math.abs(diff) > threshold) {
+                if (diff > 0) {
+                    manualNext();
+                } else {
+                    manualPrev();
+                }
+            }
+        }
+
+        // Notification popup builder
+        function showToast(message) {
+            const toast = document.getElementById('toast-message');
+            const toastText = document.getElementById('toast-text');
+            if (!toast || !toastText) return;
+
+            toastText.innerText = message;
+            toast.style.opacity = "1";
+            toast.style.transform = "translateY(0)";
+
+            setTimeout(() => {
+                toast.style.opacity = "0";
+                toast.style.transform = "translateY(10px)";
+            }, 1500);
+        }
+    </script>
+</body>
+</html>
