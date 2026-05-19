@@ -60,7 +60,7 @@
             width: 100%;
             height: 100%;
             backface-visibility: hidden;
-            background-color: #1e293b; /* Fallback color matching dark theme */
+            background-color: #1e293b; /* Fallback matching dark theme */
             box-shadow: inset 4px 0 30px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.4);
             overflow: hidden;
             display: flex;
@@ -121,14 +121,14 @@
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans overflow-x-hidden antialiased select-none">
 
-    <!-- Loading Overlay (Brief fade-in transition for style) -->
+    <!-- Brief Loading Overlay -->
     <div id="loading-overlay" class="fixed inset-0 bg-slate-950 z-[100] flex flex-col items-center justify-center gap-4 p-6 transition-opacity duration-500">
         <div class="p-4 bg-indigo-600/10 border border-indigo-500/20 rounded-full animate-bounce">
             <i data-lucide="book-open" class="w-8 h-8 text-indigo-400"></i>
         </div>
         <div class="text-center">
             <h2 class="text-lg font-bold text-slate-100 tracking-wider">Loading Publication</h2>
-            <p class="text-xs text-slate-400 mt-1 font-mono">Assembling 3D pages...</p>
+            <p class="text-xs text-slate-400 mt-1 font-mono">Assembling 3D layout...</p>
         </div>
     </div>
 
@@ -172,12 +172,12 @@
         <div class="w-full max-w-xl">
             <div class="bg-slate-900/95 border border-slate-800/80 backdrop-blur-md rounded-2xl p-3 flex items-center justify-between gap-4 shadow-2xl relative">
                 
-                <!-- Repo Folder Selector & Autoplay controls -->
+                <!-- Issue Selector & Autoplay controls -->
                 <div class="flex items-center gap-2">
                     
-                    <!-- Custom Repo Dropdown Container -->
+                    <!-- Custom Dropdown Container -->
                     <div class="relative">
-                        <button id="dropdown-toggle" onclick="toggleDropdown()" class="p-2.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 hover:border-indigo-500/50 text-indigo-400 hover:text-indigo-300 rounded-xl active:scale-95 transition-all flex items-center gap-1.5 text-xs font-semibold" title="Choose Folder">
+                        <button id="dropdown-toggle" onclick="toggleDropdown()" class="p-2.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 hover:border-indigo-500/50 text-indigo-400 hover:text-indigo-300 rounded-xl active:scale-95 transition-all flex items-center gap-1.5 text-xs font-semibold" title="Choose Issue">
                             <i data-lucide="folder" class="w-4 h-4"></i>
                             <span id="selected-folder-label">Select Issue</span>
                             <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
@@ -186,7 +186,7 @@
                         <!-- Dropdown Menu List -->
                         <div id="folders-dropdown" class="hidden absolute bottom-full left-0 mb-2 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden z-50">
                             <div class="p-1.5 flex flex-col gap-1" id="dropdown-items-container">
-                                <!-- Dynamic configured options injected here -->
+                                <!-- Configured options injected here -->
                             </div>
                         </div>
                     </div>
@@ -230,24 +230,41 @@
 
     <!-- Flipbook Scripts -->
     <script>
-        // ==========================================
-        // HARDCODED ISSUES CONFIGURATION
-        // ==========================================
+        // GitHub Pages absolute path helper: redirects to ensure the URL has a trailing slash.
+        // This guarantees relative paths like "issues/..." resolve perfectly on github.io.
+        if (window.location.hostname.endsWith('github.io') && !window.location.pathname.endsWith('/')) {
+            window.location.replace(window.location.href + '/');
+        }
+
+        // =========================================================================
+        // HARDCODED CONFIGURATION BLOCK (Edit this to manage your issues)
+        // =========================================================================
         const BOOK_CONFIG = {
             folders: [
                 {
                     name: "Issue 1",
                     folderPath: "issues/Issue 1/",
-                    prefix: "SavoyTuffle-1_Page_", // Image filename prefix
-                    suffix: "_Image_",            // Image filename middle part
+                    prefix: "SavoyTuffle-1_Page_", // Filename prefix
+                    suffix: "_Image_",            // Filename middle part
                     extension: ".png",            // File extension
-                    totalPages: 15                // Set to your exact count of 15 pages
+                    totalPages: 15                // Your exact page count
                 }
+                /* // To add "Issue 2" in the future, uncomment this block:
+                ,
+                {
+                    name: "Issue 2",
+                    folderPath: "issues/Issue 2/",
+                    prefix: "SavoyTuffle-2_Page_", 
+                    suffix: "_Image_",            
+                    extension: ".png",            
+                    totalPages: 12                
+                }
+                */
             ],
-            defaultIndex: 0 // Index of the issue to load initially (0 = Issue 1)
+            defaultIndex: 0 // Default index to load on startup (0 = Issue 1)
         };
 
-        // Active Application State
+        // Active State
         let currentFolderIndex = BOOK_CONFIG.defaultIndex;
         let images = [];
         let currentSheet = 0; 
@@ -262,27 +279,10 @@
         let touchEndX = 0;
         let isDragging = false;
 
-        // Helper: Dynamically determines if we need relative path formatting,
-        // absolute pathing, or relative-to-root page links depending on the deployment host.
-        function resolveUrl(path) {
+        // Helper: URL-encodes special characters (like spaces) cleanly
+        function cleanUrl(path) {
             if (!path) return "";
-            
-            // Encode the path elements properly to handle spaces ('Issue 1' -> 'Issue%201')
-            const parts = path.split('/');
-            const encodedParts = parts.map(part => encodeURIComponent(decodeURIComponent(part)));
-            let resolved = encodedParts.join('/');
-            
-            // Detect if running on GitHub Pages
-            const isGitHubPages = window.location.hostname.endsWith('github.io');
-            if (isGitHubPages) {
-                // Ensure we resolve the path relative to the repository base directory
-                const repoPath = window.location.pathname;
-                // Normalize path separator endings
-                const basePath = repoPath.endsWith('/') ? repoPath : repoPath + '/';
-                return basePath + resolved;
-            }
-            
-            return resolved;
+            return path.split('/').map(segment => encodeURIComponent(decodeURIComponent(segment))).join('/');
         }
 
         window.onload = function() {
@@ -300,11 +300,11 @@
                 }
             });
 
-            // Initialize dropdown selector and load the default book
+            // Initialize selector dropdown and build the current issue pages
             buildDropdownMenu();
             loadFolder(BOOK_CONFIG.defaultIndex, true);
 
-            // Hide the loading overlay smoothly
+            // Hide the loading overlay
             const overlay = document.getElementById('loading-overlay');
             if (overlay) {
                 overlay.classList.add('opacity-0');
@@ -312,7 +312,7 @@
             }
         };
 
-        // Generate drop-down selection options dynamically from our hardcoded array
+        // Generate dropdown list items
         function buildDropdownMenu() {
             const container = document.getElementById('dropdown-items-container');
             if (!container) return;
@@ -333,24 +333,22 @@
             });
         }
 
-        // Toggle dropdown menu display state
+        // Toggle dropdown open/closed
         function toggleDropdown() {
             const dropdown = document.getElementById('folders-dropdown');
             if (dropdown) dropdown.classList.toggle('hidden');
         }
 
-        // Construct and load files for selected issue
+        // Load files for selected issue
         function loadFolder(index, initialLoad = false) {
             if (!BOOK_CONFIG.folders[index]) return;
             currentFolderIndex = index;
             const target = BOOK_CONFIG.folders[index];
 
-            // Set dropdown label
             const label = document.getElementById('selected-folder-label');
             if (label) label.innerText = target.name;
 
-            // Generate precise file paths matching your PDF image outputs
-            // e.g., SavoyTuffle-1_Page_01_Image_0001.png
+            // Generate paths exactly matching: SavoyTuffle-1_Page_01_Image_0001.png
             images = [];
             for (let i = 1; i <= target.totalPages; i++) {
                 const pageNum = i.toString().padStart(2, '0');
@@ -359,13 +357,13 @@
                 images.push(filePath);
             }
 
-            // Ensure even pages for correct double-sheet 3D book pagination alignment
+            // Pad odd-numbered publications with a solid dark trailing page
             if (images.length % 2 !== 0) {
                 images.push(""); 
             }
 
             totalSheets = Math.ceil(images.length / 2);
-            currentSheet = 0; // Rewind back to cover page
+            currentSheet = 0; // Rewind back to Cover
 
             stopAutoplay();
             renderBook();
@@ -376,7 +374,7 @@
             }
         }
 
-        // Responsive Scaling to fit standard viewports seamlessly
+        // Responsive scaling helper
         function handleScaling() {
             const container = document.querySelector('.book-container');
             if (!container) return;
@@ -395,12 +393,11 @@
                 scaleFactor = 1;
             }
 
-            // Clamping rules
             scaleFactor = Math.max(0.4, Math.min(1.05, scaleFactor));
             container.style.transform = `scale(${scaleFactor})`;
         }
 
-        // Dynamic 3D Book Sheets Builder
+        // Build the 3D sheet structures
         function renderBook() {
             const bookEl = document.getElementById('flipbook');
             if (!bookEl) return;
@@ -411,14 +408,12 @@
                 sheet.id = `sheet-${s}`;
                 sheet.className = `sheet`;
                 
-                // Front page (Even indexes: 0, 2, 4...)
                 const frontImg = images[s * 2];
-                // Back page (Odd indexes: 1, 3, 5...)
                 const backImg = images[s * 2 + 1];
 
-                // Auto-fit style rule: contains the image dynamically in the page face
-                const resolvedFront = resolveUrl(frontImg);
-                const resolvedBack = resolveUrl(backImg);
+                // URL encode standard files cleanly to deal with folder spaces
+                const resolvedFront = frontImg ? cleanUrl(frontImg) : '';
+                const resolvedBack = backImg ? cleanUrl(backImg) : '';
 
                 const frontStyle = frontImg ? `background-image: url('${resolvedFront}'); background-size: contain; background-repeat: no-repeat; background-position: center; background-color: #0f172a;` : `background-color: #0f172a;`;
                 const backStyle = backImg ? `background-image: url('${resolvedBack}'); background-size: contain; background-repeat: no-repeat; background-position: center; background-color: #0f172a;` : `background-color: #0f172a;`;
@@ -429,13 +424,11 @@
                 sheet.innerHTML = `
                     <!-- Front Page Face -->
                     <div class="page-face front ${isFirstCover ? 'hardcover' : ''}" style="${frontStyle}">
-                        <!-- Spine shadow highlight -->
                         <div class="absolute top-0 left-0 w-[4px] h-full bg-black/40 z-10"></div>
                     </div>
                     
                     <!-- Back Page Face -->
                     <div class="page-face back ${isLastCover ? 'hardcover back' : ''}" style="${backStyle}">
-                        <!-- Spine shadow highlight -->
                         <div class="absolute top-0 right-0 w-[4px] h-full bg-black/40 z-10"></div>
                     </div>
                 `;
@@ -443,25 +436,21 @@
                 bookEl.appendChild(sheet);
             }
 
-            // Sync visual stacking
             updateSheetsState();
         }
 
-        // Align spine & apply 3D transformations depending on layout position
+        // Apply transformations & spine depth
         function updateSheetsState() {
             const bookContainer = document.querySelector('.book-container');
             const spine = document.getElementById('book-spine');
             
             if (currentSheet === 0) {
-                // Closed Cover (Shift book element slightly right)
                 if (bookContainer) bookContainer.style.transform = `translateX(25%)`;
                 if (spine) spine.style.transform = `translate(-50%) translateZ(4px)`;
             } else if (currentSheet === totalSheets) {
-                // Closed Back Cover (Shift book element slightly left)
                 if (bookContainer) bookContainer.style.transform = `translateX(-25%)`;
                 if (spine) spine.style.transform = `translate(-50%) translateZ(4px)`;
             } else {
-                // Fully open double pages (Centered)
                 if (bookContainer) bookContainer.style.transform = `translateX(0)`;
                 if (spine) spine.style.transform = `translate(-50%) translateZ(10px)`;
             }
@@ -481,14 +470,13 @@
                 }
             }
 
-            // Update Pagination display indices
             const indicator = document.getElementById('page-indicator');
             if (indicator) {
                 indicator.innerText = `${currentSheet + 1} / ${totalSheets + 1}`;
             }
         }
 
-        // Navigation controls
+        // Flip left turn
         function manualPrev() {
             stopAutoplay();
             if (currentSheet > 0) {
@@ -498,7 +486,7 @@
             }
         }
 
-        // Flip forward page turn
+        // Flip right turn
         function manualNext() {
             stopAutoplay();
             if (currentSheet < totalSheets) {
@@ -519,7 +507,7 @@
             showToast("Cover Page");
         }
 
-        // Play/Pause Automations
+        // Play loop
         function startAutoplay() {
             if (autoplayIntervalId) clearInterval(autoplayIntervalId);
             
@@ -540,7 +528,7 @@
             }, autoPlaySpeed);
         }
 
-        // Stop background loops
+        // Pause loop
         function stopAutoplay() {
             if (autoplayIntervalId) {
                 clearInterval(autoplayIntervalId);
@@ -566,7 +554,7 @@
             }
         }
 
-        // Native Full Screen logic
+        // Full Screen controls
         function toggleFullscreen() {
             const fsIcon = document.getElementById('fullscreen-icon');
             if (!document.fullscreenElement) {
@@ -577,7 +565,7 @@
                         showToast("Fullscreen Enabled");
                     })
                     .catch(err => {
-                        showToast("Fullscreen unsupported or denied");
+                        showToast("Fullscreen unsupported or blocked");
                     });
             } else {
                 document.exitFullscreen();
@@ -587,7 +575,7 @@
             }
         }
 
-        // Keyboard navigation
+        // Keyboard navigation keys
         function handleKeyPress(e) {
             if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") {
                 manualPrev();
@@ -599,7 +587,7 @@
             }
         }
 
-        // Touch Swipe Event Setup
+        // Swipe & drag support
         const container = document.querySelector('.book-container');
         if (container) {
             container.addEventListener('touchstart', (e) => {
@@ -641,7 +629,7 @@
             }
         }
 
-        // Notification popup builder
+        // Toast feedback box
         function showToast(message) {
             const toast = document.getElementById('toast-message');
             const toastText = document.getElementById('toast-text');
