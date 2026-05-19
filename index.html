@@ -262,10 +262,27 @@
         let touchEndX = 0;
         let isDragging = false;
 
-        // Helper: Encodes and formats paths cleanly (handles folder spaces like "Issue 1" -> "Issue%201")
+        // Helper: Dynamically determines if we need relative path formatting,
+        // absolute pathing, or relative-to-root page links depending on the deployment host.
         function resolveUrl(path) {
             if (!path) return "";
-            return encodeURI(decodeURI(path));
+            
+            // Encode the path elements properly to handle spaces ('Issue 1' -> 'Issue%201')
+            const parts = path.split('/');
+            const encodedParts = parts.map(part => encodeURIComponent(decodeURIComponent(part)));
+            let resolved = encodedParts.join('/');
+            
+            // Detect if running on GitHub Pages
+            const isGitHubPages = window.location.hostname.endsWith('github.io');
+            if (isGitHubPages) {
+                // Ensure we resolve the path relative to the repository base directory
+                const repoPath = window.location.pathname;
+                // Normalize path separator endings
+                const basePath = repoPath.endsWith('/') ? repoPath : repoPath + '/';
+                return basePath + resolved;
+            }
+            
+            return resolved;
         }
 
         window.onload = function() {
@@ -400,8 +417,11 @@
                 const backImg = images[s * 2 + 1];
 
                 // Auto-fit style rule: contains the image dynamically in the page face
-                const frontStyle = frontImg ? `background-image: url('${resolveUrl(frontImg)}'); background-size: contain; background-repeat: no-repeat; background-position: center; background-color: #0f172a;` : `background-color: #0f172a;`;
-                const backStyle = backImg ? `background-image: url('${resolveUrl(backImg)}'); background-size: contain; background-repeat: no-repeat; background-position: center; background-color: #0f172a;` : `background-color: #0f172a;`;
+                const resolvedFront = resolveUrl(frontImg);
+                const resolvedBack = resolveUrl(backImg);
+
+                const frontStyle = frontImg ? `background-image: url('${resolvedFront}'); background-size: contain; background-repeat: no-repeat; background-position: center; background-color: #0f172a;` : `background-color: #0f172a;`;
+                const backStyle = backImg ? `background-image: url('${resolvedBack}'); background-size: contain; background-repeat: no-repeat; background-position: center; background-color: #0f172a;` : `background-color: #0f172a;`;
 
                 const isFirstCover = s === 0;
                 const isLastCover = s === totalSheets - 1;
