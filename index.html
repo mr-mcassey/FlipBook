@@ -245,21 +245,10 @@
                     name: "Issue 1",
                     folderPath: "issues/Issue 1/",
                     prefix: "SavoyTuffle-1_Page_", // Filename prefix
-                    suffix: "_Image_",            // Filename middle part
+                    suffix: "_Image_0001",         // Static part of filename matching your export
                     extension: ".png",            // File extension
-                    totalPages: 15                // Your exact page count
+                    totalPages: 16                // Complete page count (1 to 16)
                 }
-                /* // To add "Issue 2" in the future, uncomment this block:
-                ,
-                {
-                    name: "Issue 2",
-                    folderPath: "issues/Issue 2/",
-                    prefix: "SavoyTuffle-2_Page_", 
-                    suffix: "_Image_",            
-                    extension: ".png",            
-                    totalPages: 12                
-                }
-                */
             ],
             defaultIndex: 0 // Default index to load on startup (0 = Issue 1)
         };
@@ -339,7 +328,7 @@
             if (dropdown) dropdown.classList.toggle('hidden');
         }
 
-        // Load files for selected issue
+        // Construct and load files for selected issue
         function loadFolder(index, initialLoad = false) {
             if (!BOOK_CONFIG.folders[index]) return;
             currentFolderIndex = index;
@@ -348,12 +337,11 @@
             const label = document.getElementById('selected-folder-label');
             if (label) label.innerText = target.name;
 
-            // Generate paths exactly matching: SavoyTuffle-1_Page_01_Image_0001.png
+            // Generate paths matching: SavoyTuffle-1_Page_01_Image_0001.png
             images = [];
             for (let i = 1; i <= target.totalPages; i++) {
                 const pageNum = i.toString().padStart(2, '0');
-                const imgNum = i.toString().padStart(4, '0');
-                const filePath = `${target.folderPath}${target.prefix}${pageNum}${target.suffix}${imgNum}${target.extension}`;
+                const filePath = `${target.folderPath}${target.prefix}${pageNum}${target.suffix}${target.extension}`;
                 images.push(filePath);
             }
 
@@ -544,6 +532,7 @@
             isAutoPlaying = false;
         }
 
+        // Toggle Autoplay State
         function togglePlay() {
             if (isAutoPlaying) {
                 stopAutoplay();
